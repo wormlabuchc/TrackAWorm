@@ -1,0 +1,157 @@
+function locomotionData = wormLocomotion(splineFile,stageFile,timesFile,framerate,calib,point,frames,res)
+
+stageData = load(stageFile);
+
+[frameFileNumbers,~,splineData,~,~] = parseSplineFile(splineFile);
+[times,~] = parseTimesFile(timesFile);
+
+frameFileNumbers = frameFileNumbers(1:2:end);
+
+x = 1:2:length(splineData(:,1));
+y = 2:2:length(splineData(:,1));
+
+% CONVERT FROM PX TO MICROMETER UNITS
+x = splineData(x,:)*calib;
+y = splineData(y,:)*calib;
+
+% COMPENSATE FOR STAGE MOVEMENT
+xComp = NaN(size(x));
+yComp = NaN(size(y));
+
+for i=1:length(x(:,1))
+    
+    [xSpline,ySpline] = newCompensateForStage(x(i,:),y(i,:),frameFileNumbers(i),stageData,framerate,res,calib);
+    xComp(i,:) = xSpline;
+    yComp(i,:) = ySpline;
+    
+end     
+
+xComp = xComp(frames(1):frames(2),:);
+yComp = yComp(frames(1):frames(2),:);
+
+% FIND THE CENTROID OF THE SPLINE
+xC = mean(xComp,2); yC = mean(yComp,2);
+
+xCFull = xC(~isnan(xC));
+yCFull = yC(~isnan(yC));
+
+xCompFull = xComp(any(~isnan(xComp),2),:);
+yCompFull = yComp(any(~isnan(yComp),2),:);
+
+if point~=0
+    
+    xPoint = xComp(:,point);
+    yPoint = yComp(:,point);
+    
+else
+    
+    xPoint = xC; yPoint = yC;
+    
+end
+
+% AMPLITUDE CALCULATIONS
+amp = zeros([1 length(xCFull) - 1]);
+wormLength = zeros(size(amp));
+
+for i=1:length(xCFull)-1
+    
+    proj = zeros([1 13]);
+    len = zeros([1 13]);
+    
+%     centerVector IS VECTOR THAT POINTS ALONG LENGTH OF WORM
+    centerVector = [xCompFull(i+1)-xCFull(i) yCFull(i+1)-yCFull(i)];
+    
+%     unitPerpVector IS NORMALIZED VECTOR PERPENDICULAR TO WORM
+    perpVector = [-centerVector(2) centerVector(1)];
+    unitPerpVector = perpVector/norm(perpVector);
+    
+    for j=1:13
+        
+%         pointVector IS VECTOR FROM WORM'S HEAD TO POINT ON SPLINE
+        pointVector = [xComp(i,j)-xComp(i,1),yComp(i,j)-yComp(i,1)];
+        
+%         THE RESPECTIVE ELEMENT OF proj IS THE COMPONENT OF pointVector
+%         PERPENDICULAR TO THE WORM, I.E. THE DISTANCE FROM THE POINT TO
+%         THE CENTERLINE OF THE WORM
+        proj(j) = dot(pointVector,unitPerpVector);
+        
+%         THE RESPECTIVE ELEMENT OF len IS THE DISTANCE BETWEEN THE CURRENT
+%         SPLINE POINT AND THE PREVIOUS SPLINE POINT
+        len(j-1) = ptDist(xComp(i,j-1),yComp(i,j-1),xComp(i,j).yComp(i,j));
+        
+        
+    end
+    
+%     THE RESPECTIVE ELEMENT OF amp IS THE MAXIMUM DISTANCE FROM A SPLINE
+%     POINT TO THE CENTER
+    amp(i) = max(abs(proj));
+    wormLength(i) = sum(len);
+    
+end
+
+amplitudeData = [{amp},{mean(amp)/mean(wormLength)}];
+
+% SPEED CALCULATIONS
+speeds = [frameFileNumbers NaN([length(xC) 1])];
+
+timeDiffs = [NaN diff(times)];
+
+for i=1:length(frameFileNumbers)
+    
+    distance = ptDist(xPoint(i),yPoint(i),xPoint(i-1),yPoint(i-1));
+    speeds(i,2) = distance/timeDiffs(i);
+    
+end
+
+speedData = {speeds(:,2)};
+
+% DIRECTION CALCULATIONS  
+forwardCount = 0;
+backwardCount = 0;
+forwardDist = 0;
+backwardDist = 0;
+
+forwardSpeed = [frameFileNumbers NaN([length(xC) 1])];
+backwardSpeed = [frameFileNumbers NaN([length(xC) 1])];
+
+for i=1:length(xCFull) - 1
+    
+    centerVector = [xCFull(i+1)-xCFull(i) yCFull(i+1)-yCFull(i)];
+    headVector = [xCompFull(i)-xCFull(i) yCompFull(i)-yCFull(i)];
+    unitHeadVector = headVector/norm(headVector);
+    proj = dot(centerVector,unitHeadVector);
+    
+    if proj>=0
+        
+        forwardCount = forwardCount+1;
+        forwardDist = forwardDist+sqrt((xCFull(i+1)-xCFull(i))^2+(yCFull(i+1)-yCFull(i))^2);
+        
+    elseif proj<0
+        
+        backwardCount = backwardCount+1;
+        backwardDist = backwardDist+sqrt((xCFull(i+1)-xCFull(i))^2+(yCFull(i+1)-yCFull(i))^2);
+    end
+end
+
+directionData = cell(1,2);
+directionData{1} = [forwardCount backwardCount]; directionData{2} = [forwardDist backwardDist];
+
+% DISTANCE CALCULATIONS
+distanceSegments = NaN([1 length(xCFull)-1]);
+
+for i=2:length(xCFull)
+    distanceSegments(i-1) = sqrt((xCFull(i)-xCFull(i-1))^2+(yCFull(i)-yCFull(i-1))^2);
+end
+
+netDist = ptDist(xCFull(1),yCFull(2),xCFull(end),yCFull(end));
+
+distanceData = cell(1,2);
+
+distanceData{1} = distanceSegments; distanceData{2} = netDist;
+
+plotData = cell(1,2);
+plotData{1} = xPoint; plotData{2} = yPoint;
+
+% SAVE ALL DATA TO STRUCTURE
+
+locomotionData = struct('Amplitude',amplitudeData,'Speed',speedData,'Direction',directionData,'Plot',plotData,'Distance',distanceData);
