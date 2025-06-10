@@ -1,4 +1,4 @@
-##Track-A-Worm (version 2.0)
+**Track-A-Worm (version 2.0)**
 
 Version 2 now comprises three components: WormTracker, SleepTracker, and Action Potential Analyzer. The WormTracker is an update of the original [Track-A-Worm](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0069653), featuring substantial improvements in functionality. Below is a list of the major additions and enhancements:
 
